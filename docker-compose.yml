@@ -1,0 +1,53 @@
+services:
+
+#  mysql:
+#    container_name: wordpress-mysql
+#    image: mariadb:latest
+#    restart: always
+#    volumes:
+#      - wordpress-mysql:/var/lib/mysql
+
+  mysql:
+    image: mariadb:latest
+    restart: always
+#    command: '--default-authentication-plugin=mysql_native_password'
+    environment:
+      - MYSQL_ROOT_PASSWORD=somewordpress
+      - MYSQL_DATABASE=wordpress_db
+      - MYSQL_USER=wordpress_user
+      - MYSQL_PASSWORD=wordpress_pass
+    expose:
+      - 3306
+      - 33060
+    volumes:
+      - ./db_data:/var/lib/mysql
+
+  wordpress:
+    container_name: wordpress
+    depends_on:
+      - mysql
+    restart: always
+    build:
+      context: .
+      dockerfile: alpine.Dockerfile
+      args:
+        - BEDROCK_DIR=${BEDROCK_DIR}
+        - HTTPD_LOGLEVEL=${HTTPD_LOGLEVEL}
+        - PHP_FPM_LOGLEVEL=${PHP_FPM_LOGLEVEL}
+        - RUNTIME_GROUP=${RUNTIME_GROUP}
+        - RUNTIME_USER=${RUNTIME_USER}
+        - TLS_HOST=${TLS_HOST}
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress_user
+      WORDPRESS_DB_PASSWORD: wordpress_pass
+      WORDPRESS_DB_NAME: wordpress_db
+    ports:
+      - 80:8080
+      - 443:8443
+    volumes:
+      - .:/app # Syncs your current directory with the /app directory in the container
+
+
+volumes:
+    wordpress-mysql:            {}
