@@ -15,4 +15,4 @@ jobs:
           with:
             gist_token: ${{ secrets.GIST_TOKEN }}
             gist_id: 43e451533d917c2e62c2b00879b81f1e
-            source_path: php-hell
+            # source_path: php-hell
