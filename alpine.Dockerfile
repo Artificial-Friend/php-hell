@@ -1,6 +1,6 @@
 FROM alpine:3.22.1 AS php83
 
-ENV PHP_VER=8.3
+ENV PHP_VER=83
 ENV RUNTIME_USER=www-data
 ENV RUNTIME_GROUP=www-data
 # Alpine www-data UID/GID is 82
@@ -87,7 +87,7 @@ RUN set -eux ; composer dump-autoload --optimize
 FROM php83-apache2 AS production-bedrock
 
 ENV BEDROCK_DIR=/app
-ENV PHP_VER=8.3
+ENV PHP_VER=83
 ENV HTTPD_PREFIX=/etc/apache2
 ARG HTTPD_LOGLEVEL=debug
 ENV HTTPD_LOGLEVEL=$HTTPD_LOGLEVEL
@@ -114,54 +114,49 @@ COPY --from=php83-bedrock --chown=${RUNTIME_USER}:${RUNTIME_GROUP} ${BEDROCK_DIR
 
 USER root
 
+# Create and permission the log directory that the default httpd.conf requires.
+# This allows the httpd process to start successfully.
+RUN mkdir -p /var/www/logs && chown -R www-data:www-data /var/www
+
 # This is mostly for calling /usr/sbin/php83-fpm and its sub-processes
 ENV PATH=$PATH:/sbin:/usr/sbin:/usr/local/sbin
 
+RUN rm -f /etc/apache2/conf.d/*.conf && \
+    sed -i \
+        -e 's/^Listen 80/Listen 8080/' \
+        -e 's/^User .*/User www-data/' \
+        -e 's/^Group .*/Group www-data/' \
+        -e 's#^DocumentRoot ".*"#DocumentRoot "/app/web"#' \
+        -e 's#<Directory "/var/www/localhost/htdocs">#<Directory "/app/web">#' \
+        -e '/<Directory "\/app\/web">/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' \
+        -e 's/DirectoryIndex index.html/DirectoryIndex index.php index.html/' \
+        /etc/apache2/httpd.conf && \
+    echo -e "LoadModule rewrite_module modules/mod_rewrite.so\nLoadModule proxy_module modules/mod_proxy.so\nLoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so" > /etc/apache2/conf.d/modules.conf && \
+    echo -e '<FilesMatch \.php$>\n    SetHandler "proxy:unix:/run/php/php-fpm.sock|fcgi://localhost/"\n</FilesMatch>' > /etc/apache2/conf.d/php-fpm.conf && \
+    sed -i \
+        -e 's/^user = .*/user = www-data/' \
+        -e 's/^group = .*/group = www-data/' \
+        -e 's#^listen = .*#listen = /run/php/php83-fpm.sock#' \
+        -e 's/^;listen.owner = .*/listen.owner = www-data/' \
+        -e 's/^;listen.group = .*/listen.group = www-data/' \
+        -e 's/^;listen.mode = .*/listen.mode = 0660/' \
+        /etc/php83/php-fpm.d/www.conf && \
+    chmod -R 775 /run/php
+
+# Ensure PHP-FPM can start by redirecting logs to stderr.
+RUN sed -i 's#^;*error_log = .*#error_log = /proc/self/fd/2#' /etc/php83/php-fpm.conf && \
+    sed -i 's#^;catch_workers_output = yes#catch_workers_output = yes#' /etc/php83/php-fpm.d/www.conf
+
 # add the user to the tty group so it can write to /dev/pts/0
-# (stdout and stderr are all /dev/pts/0 in docker)
 RUN set -eux ; usermod -aG tty ${RUNTIME_USER}
 
 # used by Bedrock
 ARG WP_ENV=development
 ENV WP_ENV=$WP_ENV
 
-# THIS IS TEMPORARY (in case I do not have my own configuration)
-# RUN rm -rf /etc/apache2/*
-
-# Uncomment these to copy Apache and PHP-FPM configuration into the container
-#COPY --chown=${RUNTIME_USER}:${RUNTIME_GROUP} .deploy/etc/ /etc/
-#COPY --chown=${RUNTIME_USER}:${RUNTIME_GROUP} .deploy/usr/ /usr/
-
-# Gemini said this is too old to be true
-#RUN set -eux ; \
-#    [ -e /etc/apache2/conf.d/proxy-html.conf ] && sed -i -e 's/libxml2\.so$/libxml2.so.2/' /etc/apache2/conf.d/proxy-html.conf ; \
-#    ln -sf /etc/apache2/envvars /usr/sbin/envvars ; \
-#    [ ! -e /usr/lib/apache2/modules ] && ln -sf /usr/lib/apache2 /usr/lib/apache2/modules ; \
-#    [ ! -e /etc/mime.types ] && ln -sf /etc/apache2/mime.types /etc/mime.types ; \
-#    touch /usr/share/apache2/ask-for-passphrase ; \
-#    apachectl -t ; \
-#    cp -a /etc/php/phpenmod /etc/php/phpdismod /etc/php/phpquery /usr/sbin/ ; \
-#    /etc/php/phpenmod `cd /etc/php/${PHP_VER}/mods-available/; ls *.ini | sed -e 's/\.ini//g'` ; \
-#    [ ! -e /usr/sbin/php-fpm${PHP_VER} ] && [ -e /usr/sbin/php-fpm7 ] && ln -sf /usr/sbin/php-fpm7 /usr/sbin/php-fpm${PHP_VER} ; \
-#    php-fpm${PHP_VER} -t ; \
-#    chown ${RUNTIME_USER}:${RUNTIME_GROUP} ${BEDROCK_DIR}
-# Note: this command includes a sanity check of apache and php
-RUN set -eux ; \
-    [ -e /etc/apache2/conf.d/proxy-html.conf ] && sed -i -e 's/libxml2\.so$/libxml2.so.2/' /etc/apache2/conf.d/proxy-html.conf ; \
-    ln -sf /etc/apache2/envvars /usr/sbin/envvars ; \
-    [ ! -e /usr/lib/apache2/modules ] && ln -sf /usr/lib/apache2 /usr/lib/apache2/modules ; \
-    [ ! -e /etc/mime.types ] && ln -sf /etc/apache2/mime.types /etc/mime.types ; \
-    touch /usr/share/apache2/ask-for-passphrase ; \
-    apachectl -t ; \
-    [ ! -e /usr/sbin/php-fpm${PHP_VER} ] && [ -e /usr/sbin/php-fpm83 ] && ln -sf /usr/sbin/php-fpm83 /usr/sbin/php-fpm${PHP_VER} ; \
-    php-fpm${PHP_VER} -t ; \
-    chown ${RUNTIME_USER}:${RUNTIME_GROUP} ${BEDROCK_DIR}
-
 EXPOSE 8080
 EXPOSE 8443
 
-# https://httpd.apache.org/docs/2.4/stopping.html#gracefulstop
-#STOPSIGNAL SIGWINCH
 STOPSIGNAL SIGQUIT
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -172,7 +167,6 @@ RUN chmod +x /usr/local/bin/apache-wordpress.sh
 
 CMD [ "/usr/local/bin/apache-wordpress.sh" ]
 
-# Look up AWS secrets on start-up
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 
 HEALTHCHECK --interval=10s --timeout=30s --retries=3 CMD curl -iLf http://localhost:8080/ || exit 1

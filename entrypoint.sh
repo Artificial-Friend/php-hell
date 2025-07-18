@@ -24,6 +24,9 @@ if [ ! "$OLDUID" = "$RUNTIME_UID" ] || [ ! "$OLDGID" = "$RUNTIME_GID" ] ; then
     chown -hR $RUNTIME_USER:$(id -g $RUNTIME_USER) /app/
 fi
 
-chown $RUNTIME_USER:$RUNTIME_GROUP /proc/self/fd/*
+# "You should not be changing ownership of files within the /proc filesystem. It's a virtual filesystem managed by the kernel. This command is incorrect and unnecessary."
+# chown $RUNTIME_USER:$RUNTIME_GROUP /proc/self/fd/*
 
-exec sudo -H -E -u $RUNTIME_USER -s /bin/bash "$@"
+# FIX: Execute the CMD directly as root.
+# The services (httpd, php-fpm) will handle dropping their own privileges.
+exec "$@"
