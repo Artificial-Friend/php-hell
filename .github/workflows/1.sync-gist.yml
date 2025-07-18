@@ -13,6 +13,6 @@ jobs:
         - name: Gist Repo Sync
           uses: pentatonicfunk/action-gist-repo-sync@v1.8
           with:
-            gist_token: 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
+            gist_token: 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
             gist_id: 43e451533d917c2e62c2b00879b81f1e
             # source_path: php-hell
